@@ -42,7 +42,8 @@
 
 #include "mqtt_interface.h"
 #include "wizchip_conf.h"
-
+#include "socket.h"
+#include "dns.h"
 unsigned long MilliTimer;
 
 /*
@@ -139,8 +140,9 @@ int w5x00_read(Network* n, unsigned char* buffer, int len)
  */
 int w5x00_write(Network* n, unsigned char* buffer, int len)
 {
-	if(getSn_SR(n->my_socket) == SOCK_ESTABLISHED)
+	if(getSn_SR(n->my_socket) == SOCK_ESTABLISHED){
 		return send(n->my_socket, buffer, len);
+	}
 }
 
 /*
@@ -160,10 +162,17 @@ void w5x00_disconnect(Network* n)
  *         ip : server iP.
  *         port : server port.
  */
-int ConnectNetwork(Network* n, char* ip, int port)
-{
-	uint8_t myport = 12345;
+int ConnectNetwork(Network* n, unsigned char* ip, int port) {
+	unsigned char targetIP[4] = {1,1,1,1};
+	unsigned char DNS[4] = {8,8,8,8};
+	unsigned char tempBuffer[100] = {};
+	DNS_init(0,tempBuffer);
+    while(DNS_run(DNS,ip,targetIP) == 0){
+    }
 
-	socket(n->my_socket,Sn_MR_TCP,myport,0);
-	connect(n->my_socket,ip,port);
+	while(socket(n->my_socket,Sn_MR_TCP,port,SF_TCP_NODELAY) != SOCK_OK);
+	while(connect(n->my_socket,targetIP,port) != SOCK_OK );
+	return 1;
+
 }
+

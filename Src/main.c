@@ -49,50 +49,16 @@
 #include "wizchip_conf.h"
 #include "string.h"
 #include "dweet.h"
+#include "mqtt_interface.h"
+#include "MQTTClient.h"
+#include <stdbool.h>
+
 /* USER CODE END Includes */
 
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
 
-
-#define SEPARATOR            "=============================================\r\n"
-#define WELCOME_MSG  		 "Welcome to STM32Nucleo Ethernet configuration\r\n"
-#define NETWORK_MSG  		 "Network configuration:\r\n"
-#define IP_MSG 		 		 "  IP ADDRESS:  %d.%d.%d.%d\r\n"
-#define NETMASK_MSG	         "  NETMASK:     %d.%d.%d.%d\r\n"
-#define GW_MSG 		 		 "  GATEWAY:     %d.%d.%d.%d\r\n"
-#define MAC_MSG		 		 "  MAC ADDRESS: %x:%x:%x:%x:%x:%x\r\n"
-#define GREETING_MSG 		 "Well done guys! Welcome to the IoT world. Bye!\r\n"
-#define CONN_ESTABLISHED_MSG "Connection established with remote IP: %d.%d.%d.%d:%d\r\n"
-#define SENT_MESSAGE_MSG	 "Sent a message. Let's close the socket!\r\n"
-#define WRONG_RETVAL_MSG	 "Something went wrong; return value: %d\r\n"
-#define WRONG_STATUS_MSG	 "Something went wrong; STATUS: %d\r\n"
-#define LISTEN_ERR_MSG		 "LISTEN Error!\r\n"
-#define MESSAGE_TEST		 "A"
-
-
-#define PRINT_STR(msg) do  {										\
-  HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);		\
-} while(0)
-
-#define PRINT_HEADER() do  {													\
-  HAL_UART_Transmit(&huart2, (uint8_t*)SEPARATOR, strlen(SEPARATOR), 100);		\
-  HAL_UART_Transmit(&huart2, (uint8_t*)WELCOME_MSG, strlen(WELCOME_MSG), 100);	\
-  HAL_UART_Transmit(&huart2, (uint8_t*)SEPARATOR, strlen(SEPARATOR), 100);		\
-} while(0)
-
-#define PRINT_NETINFO(netInfo) do { 																					\
-  HAL_UART_Transmit(&huart2, (uint8_t*)NETWORK_MSG, strlen(NETWORK_MSG), 100);											\
-  sprintf(msg, MAC_MSG, netInfo.mac[0], netInfo.mac[1], netInfo.mac[2], netInfo.mac[3], netInfo.mac[4], netInfo.mac[5]);\
-  HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);															\
-  sprintf(msg, IP_MSG, netInfo.ip[0], netInfo.ip[1], netInfo.ip[2], netInfo.ip[3]);										\
-  HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);															\
-  sprintf(msg, NETMASK_MSG, netInfo.sn[0], netInfo.sn[1], netInfo.sn[2], netInfo.sn[3]);								\
-  HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);															\
-  sprintf(msg, GW_MSG, netInfo.gw[0], netInfo.gw[1], netInfo.gw[2], netInfo.gw[3]);										\
-  HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);															\
-} while(0)
 
 /* Private variables ---------------------------------------------------------*/
 
@@ -103,10 +69,28 @@ void SystemClock_Config(void);
 
 /* USER CODE BEGIN PFP */
 /* Private function prototypes -----------------------------------------------*/
-
+void messageArrived(MessageData* md);
 /* USER CODE END PFP */
 
 /* USER CODE BEGIN 0 */
+
+void messageArrived(MessageData* md) {
+	MQTTMessage* message = md->message;
+	unsigned char testbuffer[100];
+	memset(testbuffer, 0, 100);
+
+	memcpy(testbuffer,(char*)message->payload,(int)message->payloadlen);
+	//*(testbuffer + (int)message->payloadlen + 1) = "\n";
+	printf("%s\r\n",testbuffer);
+	if(testbuffer[0] == '1'){
+		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_SET); //CS HIGH
+	}
+	else if ( testbuffer[0] == '0'){
+		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_RESET); //CS RESET
+	}
+
+
+}
 
 /* USER CODE END 0 */
 
@@ -119,7 +103,7 @@ int main(void)
 {
   /* USER CODE BEGIN 1 */
   uint8_t bufSize[] = {2, 2, 2, 2};
-  uint8_t retVal, sockStatus;
+  uint8_t retVal = 0;
   /* USER CODE END 1 */
 
   /* MCU Configuration----------------------------------------------------------*/
@@ -152,23 +136,50 @@ int main(void)
   reg_wizchip_spi_cbfunc(spi_rb, spi_wb);
   wizchip_init(bufSize, bufSize);
   wiz_NetInfo netInfo = { .mac 	= {0x00, 0xAA, 0xBB, 0xCC, 0xDE, 0x02},	// Mac address
-                          .ip 	= {172, 31, 141, 154},					// IP address
+                          .ip 	= {172, 31, 141, 159},					// IP address
                           .sn 	= {255, 255, 255, 0},					// Subnet mask
                           .gw 	= {172, 31, 141, 1}};					// Gateway address
   wizchip_setnetinfo(&netInfo);
   memset(&netInfo, 0, sizeof(netInfo));
   wizchip_getnetinfo(&netInfo);
-  //PRINT_HEADER();
-  //PRINT_NETINFO(netInfo);
+
+  MQTTClient c;
+  Network n;
+  unsigned char buf[100];
+  unsigned char readbuf[100];
+  char MessageToSend[100];
+  sprintf(MessageToSend, "Hello World!  QoS 0 message from UatuBoard");
+  char *clientid = "UatuBoard";
+  NewNetwork(&n,1);
+  ConnectNetwork(&n,"broker.hivemq.com",1883);
+  MQTTClientInit(&c, &n, 1000, buf, 100, readbuf, 100);
+  // Packet ot send for broker
+  MQTTMessage MessageToBroker;
+  MessageToBroker.qos = QOS0;
+  MessageToBroker.retained = false;  // set to true for retained
+  MessageToBroker.dup = false;
+  MessageToBroker.payload = (void*)MessageToSend;
+  MessageToBroker.payloadlen = strlen(MessageToSend);
+
+  MQTTPacket_connectData data = MQTTPacket_connectData_initializer;
+  data.willFlag = 0;
+  data.MQTTVersion = 3;
+  data.clientID.cstring = clientid;
+  data.keepAliveInterval = 10;
+  data.cleansession = 1;
+  retVal = MQTTConnect(&c, &data);
+  retVal = MQTTSubscribe(&c, "boardLED2", QOS0, messageArrived);
+
+
   while (1)
   {
 
   /* USER CODE END WHILE */
 
   /* USER CODE BEGIN 3 */
-	  dweetsend("caio1234","{\"ldr\":\"232\",\"led\":\"1\"}");
-	  HAL_Delay(1000);
-
+	  MQTTYield(&c, 1000);
+	  MQTTPublish(&c,"boardLED",&MessageToBroker);
+	  HAL_Delay(300);
   }
   /* USER CODE END 3 */
 

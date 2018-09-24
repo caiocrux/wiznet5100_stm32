@@ -11,11 +11,10 @@
 #include "dweet.h"
 #include "stm32f1xx_hal.h"
 #include "socket.h"
-#include "httpParser.h"
 
 uint8_t Sn = 1;
-uint8_t ip_server[4] = {34,206,105,151};   ///< dweet IP
-uint16_t port_server = 80;
+uint8_t ip_server[4] = {172,31,141,151};   ///< dweet IP
+uint16_t port_server = 3001;
 
 int dweetsend(char* thing, char* data) {
 	int ret = 0;
